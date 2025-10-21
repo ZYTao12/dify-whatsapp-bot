@@ -5,7 +5,6 @@ from werkzeug import Request, Response
 from dify_plugin import Endpoint
 from dify_plugin.invocations.app.chat import ChatAppInvocation
 
-
 class WhatsappBotEndpoint(Endpoint):
     def _invoke(self, r: Request, values: Mapping, settings: Mapping) -> Response:
         """
@@ -68,44 +67,38 @@ class WhatsappBotEndpoint(Endpoint):
         identify_inputs: Mapping,
         conversation_key: str,
     ) -> Optional[str]:
-        """Invoke Dify app with conversation continuity and return answer text if any."""
+        # Persist/restore conversation_id
+        conversation_id: Optional[str] = None
         try:
-            conversation_id: Optional[str] = None
-            try:
-                raw = self.session.storage.get(conversation_key)
-                if raw:
-                    conversation_id = raw.decode('utf-8') if isinstance(raw, (bytes, bytearray)) else str(raw)
-            except Exception:
-                conversation_id = None
-
-            invoke_params = {
-                'app_id': app_id,
-                'query': query,
-                'inputs': dict(identify_inputs),
-                'response_mode': 'blocking',
-            }
-            if conversation_id:
-                invoke_params['conversation_id'] = conversation_id
-
-            # Prefer using the session app invocation to align with other bots
-            result = self.session.app.chat.invoke(**invoke_params)
-
-            answer = (
-                result.get('answer')
-                or result.get('output_text')
-                or result.get('message')
-            )
-
-            new_conversation_id = result.get('conversation_id')
-            if new_conversation_id:
-                try:
-                    self.session.storage.set(conversation_key, str(new_conversation_id).encode('utf-8'))
-                except Exception:
-                    pass
-
-            return str(answer) if answer is not None else None
+            raw = self.session.storage.get(conversation_key)
+            if raw:
+                conversation_id = raw.decode('utf-8') if isinstance(raw, (bytes, bytearray)) else str(raw)
         except Exception:
-            return None
+            conversation_id = None
+
+        invoker = ChatAppInvocation(self.session)
+        invoke_params = {
+            "app_id": app_id,
+            "query": query,
+            "inputs": dict(identify_inputs),
+            "response_mode": "blocking",
+        }
+        if conversation_id:
+            invoke_params["conversation_id"] = conversation_id
+
+        # Let exceptions surface to logs during development; don’t swallow silently
+        result = invoker.invoke(**invoke_params)
+
+        answer = result.get("answer") or result.get("output_text") or result.get("message")
+        new_conversation_id = result.get("conversation_id")
+        if new_conversation_id:
+            try:
+                self.session.storage.set(conversation_key, str(new_conversation_id).encode("utf-8"))
+            except Exception:
+                pass
+
+        return str(answer) if answer is not None else None
+
 
     def _send_whatsapp_text(
         self,
@@ -138,6 +131,8 @@ class WhatsappBotEndpoint(Endpoint):
     def _handle_webhook(self, r: Request, settings: Mapping) -> Response:
         try:
             payload = r.get_json(silent=True) or {}
+            # inside WhatsappBotEndpoint._handle_webhook, right after `payload = r.get_json(silent=True) or {}`
+
         except Exception:
             return Response("Bad Request", status=400, content_type="text/plain")
 
@@ -178,9 +173,6 @@ class WhatsappBotEndpoint(Endpoint):
                                 identify_inputs=identify_inputs,
                                 conversation_key=conversation_key,
                             )
-                        # Fallback to echo if no app configured or invocation failed
-                        if not reply_text:
-                            reply_text = text_body
 
                         if can_reply and reply_text:
                             self._send_whatsapp_text(

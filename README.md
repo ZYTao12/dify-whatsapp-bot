@@ -35,3 +35,38 @@ Open plugin settings and fill:
 
 - This plugin currently echoes user text. Integrate Dify App invocation inside `_generate_reply` when app reverse-call APIs are available.
 - WhatsApp Cloud API docs: `https://developers.facebook.com/docs/whatsapp/cloud-api`
+
+### Configure WhatsApp Business (Cloud API)
+
+1. Apply for a Meta Developer account
+   - Visit `https://developers.facebook.com/` and create/upgrade to a Developer account.
+
+2. Create a WhatsApp app in Meta for Developers
+   - In your Meta Developer dashboard, create an App, then add the WhatsApp product to the app.
+   - Follow the quickstart to get a test phone number and set the product up. See Meta guide: `https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-whatsapp-echo-bot`.
+
+3. Generate API token and copy Phone Number ID
+   - In WhatsApp > API Setup, generate an access token (temporary test token or system user token) and copy your Phone Number ID.
+   - You will need these values in Dify plugin settings: `WhatsApp Access Token` and `Phone Number ID`.
+   - Reference:
+     
+     ![Access token and phone number ID](_assets/apikeyandphonenumberid.jpg)
+
+4. Configure the webhook in Meta to point to this plugin
+   - In WhatsApp > Configuration, set:
+     - Callback URL: your public Dify endpoint for this plugin, for example: `https://<your-dify-host>/webhooks/whatsapp`
+     - Verify token: the exact `Webhook Verify Token` you set in the plugin settings.
+   - Subscribe to the `messages` field for the Webhook.
+   - References:
+     
+     ![Configure webhook - step 1](_assets/configurewebhook1.jpg)
+     
+     ![Configure webhook - step 2](_assets/configurewebhook2.jpg)
+
+5. Token hygiene for testing accounts
+   - If you are using a test account, Meta’s temporary access tokens expire frequently. Regenerate tokens as needed and update the plugin settings accordingly.
+   - Keep your access token secret; do not commit it to source control.
+
+Helpful docs:
+- Webhook payload examples (to understand inbound sender fields like `messages[].from`): `https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples`
+- Echo bot setup (quick setup flow): `https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-whatsapp-echo-bot`

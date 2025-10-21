@@ -27,7 +27,7 @@ parameters:
       pt_BR: ID do usuário do WhatsApp (valor 'from' do webhook)
     type: string
     form: llm
-    required: true
+    required: false
     llm_description: WhatsApp user ID to send message to
   - name: text
     label:
