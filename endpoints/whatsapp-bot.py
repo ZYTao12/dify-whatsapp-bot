@@ -5,6 +5,7 @@ from werkzeug import Request, Response
 from dify_plugin import Endpoint
 from dify_plugin.invocations.app.chat import ChatAppInvocation
 
+
 class WhatsappBotEndpoint(Endpoint):
     def _invoke(self, r: Request, values: Mapping, settings: Mapping) -> Response:
         """
@@ -131,8 +132,6 @@ class WhatsappBotEndpoint(Endpoint):
     def _handle_webhook(self, r: Request, settings: Mapping) -> Response:
         try:
             payload = r.get_json(silent=True) or {}
-            # inside WhatsappBotEndpoint._handle_webhook, right after `payload = r.get_json(silent=True) or {}`
-
         except Exception:
             return Response("Bad Request", status=400, content_type="text/plain")
 
@@ -150,19 +149,28 @@ class WhatsappBotEndpoint(Endpoint):
                 for change in entry.get('changes', []):
                     value = change.get('value') or {}
                     messages = value.get('messages') or []
+                    if not messages:
+                        continue
+
+                    # Prefer canonical wa_id when available
+                    contacts = value.get('contacts') or []
+                    wa_id = None
+                    if isinstance(contacts, list) and contacts:
+                        wa_id = (contacts[0] or {}).get('wa_id')
+
                     for message in messages:
-                        sender_wa_id = message.get('from')
+                        sender_wa_id = wa_id or message.get('from')
                         text_body = self._extract_text(message)
                         if not sender_wa_id or text_body is None:
                             continue
 
-                        # Prepare identification inputs for the app
+                        # Inputs for the app — include the full payload for tool-side inference
                         identify_inputs = {
-                            'whatsapp_user_id': sender_wa_id,
+                            'whatsapp_user_id': str(sender_wa_id),
                             'phone_number_id': phone_number_id,
+                            'webhook_payload': payload,       
                         }
 
-                        # Build a stable conversation storage key scoped to this phone number
                         conversation_key = f"whatsapp:{phone_number_id}:{sender_wa_id}"
 
                         reply_text = None
@@ -174,15 +182,24 @@ class WhatsappBotEndpoint(Endpoint):
                                 conversation_key=conversation_key,
                             )
 
+                        # If your app returns a text answer, send it here.
                         if can_reply and reply_text:
                             self._send_whatsapp_text(
                                 access_token=access_token,
                                 phone_number_id=phone_number_id,
-                                to_wa_id=sender_wa_id,
+                                to_wa_id=str(sender_wa_id),
                                 body_text=reply_text,
                             )
+                        # Else: assume tool-based sending occurred inside the app.
         except Exception:
-            # Swallow errors to avoid webhook retries
             return self._ok()
 
         return self._ok()
+
+    class DebugListener(Endpoint):
+        def _invoke(self, r: Request, values: Mapping, settings: Mapping) -> Response:
+            payload = r.get_json(silent=True) or {}
+            print("=== DEBUG WHATSAPP PAYLOAD ===")
+            print(json.dumps(payload, indent=2))
+            print("==============================")
+            return Response("ok", status=200)
