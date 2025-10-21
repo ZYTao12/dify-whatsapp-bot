@@ -1,8 +1,6 @@
-import json
 import re
-from collections.abc import Generator
+from typing import Optional, Generator
 import requests
-
 from dify_plugin.interfaces.tool import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
 
@@ -16,29 +14,153 @@ class SendMessageTool(Tool):
         text: str = (tool_parameters.get("text") or "").strip()
 
         if not access_token or not phone_number_id:
-            yield self.create_log_message(
-                label="credentials",
-                data={
-                    "error": "Missing credentials",
-                    "have_access_token": bool(access_token),
-                    "have_phone_number_id": bool(phone_number_id),
-                },
-                status=ToolInvokeMessage.LogMessage.LogStatus.ERROR,
+            details = f"have_access_token={bool(access_token)}, have_phone_number_id={bool(phone_number_id)}"
+            yield self.create_text_message(
+                f"Configuration error: missing WhatsApp credentials ({details})"
             )
-            yield self.create_text_message("Configuration error: missing WhatsApp credentials")
             return
 
+        # ---- Helper: normalize to E.164 digits (no '+') ----
+        def _digits_only(s: str) -> str:
+            return re.sub(r"[^0-9]", "", s or "")
+
+        # ---- Helper: try to parse the actual WhatsApp webhook envelope ----
+        def _extract_from_whatsapp_webhook_envelope(d: dict) -> Optional[str]:
+            """
+            Handle the JSON shape:
+            {
+              "object": "whatsapp_business_account",
+              "entry": [
+                {
+                  "changes": [
+                    {
+                      "value": {
+                        "contacts": [{"wa_id": "..."}],
+                        "messages": [{"from": "..."}]
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+            Prefer messages[0].from, else contacts[0].wa_id
+            """
+            try:
+                entries = d.get("entry") or []
+                for entry in entries:
+                    changes = entry.get("changes") or []
+                    for change in changes:
+                        value = change.get("value") or {}
+                        # Prefer message.from
+                        messages = value.get("messages") or []
+                        if isinstance(messages, list) and messages:
+                            frm = (messages[0] or {}).get("from")
+                            if isinstance(frm, str) and frm.strip():
+                                return frm.strip()
+                        # Fallback to contacts[0].wa_id
+                        contacts = value.get("contacts") or []
+                        if isinstance(contacts, list) and contacts:
+                            wa_id = (contacts[0] or {}).get("wa_id")
+                            if isinstance(wa_id, str) and wa_id.strip():
+                                return wa_id.strip()
+            except Exception:
+                pass
+            return None
+
+        # ---- Helper: handle flattened value (if someone stored just the inner 'value') ----
+        def _extract_from_value_only(d: dict) -> Optional[str]:
+            try:
+                value = d.get("value") or {}
+                # Prefer message.from
+                messages = value.get("messages") or []
+                if isinstance(messages, list) and messages:
+                    frm = (messages[0] or {}).get("from")
+                    if isinstance(frm, str) and frm.strip():
+                        return frm.strip()
+                # Fallback to contacts[0].wa_id
+                contacts = value.get("contacts") or []
+                if isinstance(contacts, list) and contacts:
+                    wa_id = (contacts[0] or {}).get("wa_id")
+                    if isinstance(wa_id, str) and wa_id.strip():
+                        return wa_id.strip()
+            except Exception:
+                pass
+            return None
+
+        # If recipient is not explicitly provided, try to infer it from runtime context
+        if not to_raw:
+            try:
+                # Collect likely dict-like contexts from runtime to search for webhook payloads or pre-extracted ids
+                possible_attr_names = [
+                    "variables",
+                    "inputs",
+                    "identify_inputs",
+                    "context",
+                    "metadata",
+                    "extras",
+                    "user_inputs",
+                    "kwargs",
+                    "messages",
+                ]
+                candidate_dicts: list[dict] = []
+                for name in possible_attr_names:
+                    value = getattr(self.runtime, name, None)
+                    if isinstance(value, dict):
+                        candidate_dicts.append(value)
+
+                # Prefer explicit keys (customer identifiers only). Deliberately exclude 'whatsapp_user_id'.
+                preferred_keys = [
+                    "wa_id",
+                    "from",
+                    "sender_wa_id",
+                    "whatsapp_wa_id",
+                    "whatsapp_from",
+                ]
+                found_value: Optional[str] = None
+
+                # 1) Full webhook envelope: entry[]/changes[]/value/...
+                for d in candidate_dicts:
+                    v = _extract_from_whatsapp_webhook_envelope(d)
+                    if isinstance(v, str) and v.strip():
+                        found_value = v.strip()
+                        break
+
+                # 2) Inner 'value' only
+                if not found_value:
+                    for d in candidate_dicts:
+                        v = _extract_from_value_only(d)
+                        if isinstance(v, str) and v.strip():
+                            found_value = v.strip()
+                            break
+
+                # 3) Direct keys
+                if not found_value:
+                    for d in candidate_dicts:
+                        for k in preferred_keys:
+                            v = d.get(k)
+                            if isinstance(v, str) and v.strip():
+                                found_value = v.strip()
+                                break
+                        if found_value:
+                            break
+
+                if isinstance(found_value, str):
+                    to_raw = found_value
+            except Exception:
+                # If inference fails, proceed to regular validation below
+                pass
+
         if not to_raw or not text:
-            yield self.create_log_message(
-                label="parameters",
-                data={"error": "Missing required parameters", "to": bool(to_raw), "text": bool(text)},
-                status=ToolInvokeMessage.LogMessage.LogStatus.ERROR,
+            yield self.create_text_message(
+                "Missing required parameters: text (and recipient could not be inferred)"
             )
-            yield self.create_text_message("Missing required parameters: to, text")
             return
 
         # Normalize recipient: WhatsApp Cloud API expects full international number without '+'
-        to = re.sub(r"[^0-9]", "", to_raw)
+        to = _digits_only(to_raw)
+        if not to:
+            yield self.create_text_message("Recipient phone/wa_id could not be normalized to digits.")
+            return
 
         url = f"https://graph.facebook.com/v24.0/{phone_number_id}/messages"
         headers = {
@@ -47,33 +169,17 @@ class SendMessageTool(Tool):
         }
         payload = {
             "messaging_product": "whatsapp",
-            "to": to,
+            "to": to,                # digits only
             "type": "text",
             "text": {"body": text},
         }
-
-        yield self.create_log_message(label="send_request", data={"url": url, "to": to})
 
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=20)
             body = safe_json(resp)
             ok = 200 <= resp.status_code < 300
 
-            status = (
-                ToolInvokeMessage.LogMessage.LogStatus.SUCCESS
-                if ok
-                else ToolInvokeMessage.LogMessage.LogStatus.ERROR
-            )
-            yield self.create_log_message(
-                label="send_response",
-                data={"status_code": resp.status_code, "body": body},
-                status=status,
-            )
-
             if ok:
-                # Emit structured JSON for programmatic use
-                yield self.create_json_message({"result": "sent", "to": to, "response": body})
-                # Also emit a simple text as the final output for workflows expecting a string
                 try:
                     wa_message_id = None
                     if isinstance(body, dict):
@@ -90,17 +196,19 @@ class SendMessageTool(Tool):
             api_error = extract_api_error(body)
             if api_error:
                 hint = suggest_fix(api_error)
-                yield self.create_json_message({"error": api_error, "hint": hint})
+                error_text = (
+                    f"Failed to send message: HTTP {resp.status_code}. "
+                    f"error={{code: {api_error.get('code')}, type: {api_error.get('type')}, "
+                    f"message: {api_error.get('message')}, subcode: {api_error.get('error_subcode')}}}. "
+                    f"hint: {hint}"
+                )
+                yield self.create_text_message(error_text)
             else:
                 yield self.create_text_message(f"Failed to send message: HTTP {resp.status_code}")
 
         except Exception as e:
-            yield self.create_log_message(
-                label="exception",
-                data={"error": str(e)},
-                status=ToolInvokeMessage.LogMessage.LogStatus.ERROR,
-            )
-            yield self.create_text_message("Failed to send message due to exception")
+            yield self.create_text_message(f"Failed to send message due to exception: {str(e)}")
+
 
 
 def safe_json(resp):
