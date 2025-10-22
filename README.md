@@ -26,19 +26,6 @@ Open plugin settings and fill:
 - `Phone Number ID` (`phone_number_id`): WhatsApp Business phone number ID.
 - `Dify App` (`app`): optional. If set, incoming user text can be forwarded to the app; otherwise the plugin echoes the text.
 
-### Chatflow Start Node 
-
-To have the Chatflow identify user from webhook, you will need to set up a few optional fields in your Chatflow's Start node.
-
-After setting up API keys, add the following inputs in your Chatflow App's start node:
-
-- **whatsapp_user_id** (not required)
-- **wa_id** (not required)
-
-You may use either for the To field in send_message tool. Include both to act as fallback for payload inconsistency. 
-
-![Start node setup](_assets/startnodesetup.jpg)
-
 ### Webhook Endpoints
 
 - `GET /webhooks/whatsapp` for webhook verification: responds with `hub.challenge` when `hub.verify_token` matches settings.
@@ -83,3 +70,16 @@ You may use either for the To field in send_message tool. Include both to act as
 Helpful docs:
 - Webhook payload examples (to understand inbound sender fields like `messages[].from`): `https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples`
 - Echo bot setup (quick setup flow): `https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-whatsapp-echo-bot`
+
+### Chatflow Start Node 
+
+To have the Chatflow identify user from webhook, you will need to set up a few optional fields in your Chatflow's Start node.
+
+After setting up API keys, add the following inputs in your Chatflow App's start node:
+
+- **whatsapp_user_id** (not required)
+- **wa_id** (not required)
+
+You may use either for the To field in send_message tool. Include both to act as fallback for payload inconsistency. 
+
+![Start node setup](_assets/startnodesetup.jpg)
