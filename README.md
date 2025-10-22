@@ -24,17 +24,37 @@ Open plugin settings and fill:
 - `WhatsApp Access Token` (`access_token`): from Meta for Developers.
 - `Webhook Verify Token` (`verify_token`): choose a secret and reuse in Meta webhook setup.
 - `Phone Number ID` (`phone_number_id`): WhatsApp Business phone number ID.
+- `WhatsApp Business Account ID` (`waba_id`): WABA ID, required for fetching approved templates.
 - `Dify App` (`app`): optional. If set, incoming user text can be forwarded to the app; otherwise the plugin echoes the text.
+
+### Available Tools
+
+This plugin provides the following WhatsApp tools:
+
+#### 1. Send Message (`send_message`)
+Send a plain text message to a WhatsApp user.
+
+**Parameters:**
+- `to`: WhatsApp user ID or phone number (international format without +)
+- `text`: Message content to send
+
+#### 2. Send Template (`send_template`)
+Send an approved WhatsApp template message to a user. This tool dynamically fetches your approved templates from WhatsApp Business.
+
+**Parameters:**
+- `to`: WhatsApp user ID or phone number (international format without +)
+- `template_name`: Enter the template you would like to send as a string. The template has to be approved by Meta.
+- `language_code`: Template language code (e.g., en_US, zh_CN, pt_BR). Default: en_US
+- `template_parameters`: Optional parameters for template variables (comma-separated or JSON array)
+
+**Example template parameters:**
+- Simple: `"John,123"` (for templates with {{1}}, {{2}})
+- JSON: `[{"type":"text","text":"John"},{"type":"text","text":"123"}]`
 
 ### Webhook Endpoints
 
 - `GET /webhooks/whatsapp` for webhook verification: responds with `hub.challenge` when `hub.verify_token` matches settings.
 - `POST /webhooks/whatsapp` to receive events. Currently extracts text messages and replies with text.
-
-### Notes
-
-- This plugin currently echoes user text. Integrate Dify App invocation inside `_generate_reply` when app reverse-call APIs are available.
-- WhatsApp Cloud API docs: `https://developers.facebook.com/docs/whatsapp/cloud-api`
 
 ### Configure WhatsApp Business (Cloud API)
 
@@ -51,6 +71,13 @@ Open plugin settings and fill:
    - Reference:
      
      ![Access token and phone number ID](_assets/apikeyandphonenumberid.jpg)
+
+3.5. Find your WhatsApp Business Account ID (WABA ID)
+   - In Meta Business Suite, navigate to WhatsApp Accounts or check the URL when viewing your WhatsApp Business settings.
+   - The WABA ID is a numeric ID (e.g., `123456789012345`) that identifies your WhatsApp Business Account.
+   - You can also find it in the API Setup page or by calling: `https://graph.facebook.com/v24.0/me/businesses?access_token=YOUR_TOKEN`
+   - For developers with a testing account, the WABA ID is next to Phone number ID under WhatsApp -> API Setup -> Send and receive message.
+   - This ID is required for the `send_template` tool to fetch your approved message templates.
 
 4. Configure the webhook in Meta to point to this plugin
    - In WhatsApp > Configuration, set:
@@ -83,3 +110,17 @@ After setting up API keys, add the following inputs in your Chatflow App's start
 You may use either for the To field in send_message tool. Include both to act as fallback for payload inconsistency. 
 
 ![Start node setup](_assets/startnodesetup.jpg)
+
+### Tests
+
+#### Test 1: send a text message to a specified user
+![Test 1](_assets/test1.jpg)
+
+#### Test 2: reply to a user with a text message
+![Test 2](_assets/test2.jpg)
+
+#### Test 3: send a template to a specific user
+Note: since all templates need to be approved by Meta, the `send_template` tool acts as a functional node most suitable for Workflow, rather than Chatflow.
+
+![Test 3 — workflow config](_assets/test23sc.jpg)
+![Test 3 — result](_assets/test3.jpeg)
