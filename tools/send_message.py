@@ -89,65 +89,7 @@ class SendMessageTool(Tool):
 
         # If recipient is not explicitly provided, try to infer it from runtime context
         if not to_raw:
-            try:
-                # Collect likely dict-like contexts from runtime to search for webhook payloads or pre-extracted ids
-                possible_attr_names = [
-                    "variables",
-                    "inputs",
-                    "identify_inputs",
-                    "context",
-                    "metadata",
-                    "extras",
-                    "user_inputs",
-                    "kwargs",
-                    "messages",
-                ]
-                candidate_dicts: list[dict] = []
-                for name in possible_attr_names:
-                    value = getattr(self.runtime, name, None)
-                    if isinstance(value, dict):
-                        candidate_dicts.append(value)
-
-                # Prefer explicit keys (customer identifiers only). Deliberately exclude 'whatsapp_user_id'.
-                preferred_keys = [
-                    "wa_id",
-                    "from",
-                    "sender_wa_id",
-                    "whatsapp_wa_id",
-                    "whatsapp_from",
-                ]
-                found_value: Optional[str] = None
-
-                # 1) Full webhook envelope: entry[]/changes[]/value/...
-                for d in candidate_dicts:
-                    v = _extract_from_whatsapp_webhook_envelope(d)
-                    if isinstance(v, str) and v.strip():
-                        found_value = v.strip()
-                        break
-
-                # 2) Inner 'value' only
-                if not found_value:
-                    for d in candidate_dicts:
-                        v = _extract_from_value_only(d)
-                        if isinstance(v, str) and v.strip():
-                            found_value = v.strip()
-                            break
-
-                # 3) Direct keys
-                if not found_value:
-                    for d in candidate_dicts:
-                        for k in preferred_keys:
-                            v = d.get(k)
-                            if isinstance(v, str) and v.strip():
-                                found_value = v.strip()
-                                break
-                        if found_value:
-                            break
-
-                if isinstance(found_value, str):
-                    to_raw = found_value
-            except Exception:
-                # If inference fails, proceed to regular validation below
+            
                 pass
 
         if not to_raw or not text:
