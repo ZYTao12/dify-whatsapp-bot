@@ -128,7 +128,7 @@ class SendMessageTool(Tool):
                         msgs = body.get("messages") or []
                         if isinstance(msgs, list) and msgs:
                             wa_message_id = msgs[0].get("id")
-                    #summary = f"sent to {to}" + (f" (id: {wa_message_id})" if wa_message_id else "")
+                    yield self.create_text_message(f"Message sent to {to} with ID: {wa_message_id}")
                 except Exception:
                     summary = f"sent to {to}"
                     yield self.create_text_message(summary)
